@@ -112,9 +112,9 @@ All of them are independent commands to start , stop or restart a service. Your 
     ```
 - Logs:
     ```bash
-    supervisorctl tail broker:broker1 # Eth Sepolia
-    supervisorctl tail broker:broker2 # Base Sepolia
-    supervisorctl tail broker:broker2 # Base mainnet
+    supervisorctl tail -f broker:broker1 # Eth Sepolia
+    supervisorctl tail -f broker:broker2 # Base Sepolia
+    supervisorctl tail -f broker:broker3 # Base mainnet
     ```
 
 ## Explanation of nouns
