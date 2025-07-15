@@ -36,20 +36,6 @@ English | [中文](https://github.com/walirt/boundless-prover/blob/main/README_z
     ```
 
 5. Deposit funds into the network you want to join ( Deduct <> signs)
-    - Eth Sepolia
-    ```bash
-    export RPC_URL=<ETH_SEPOLIA_RPC_URL>
-    export PRIVATE_KEY=<PRIVATE_KEY>
-    source /app/.env.eth-sepolia
-    boundless account deposit-stake 10
-    ```
-    - Base Sepolia
-    ```bash
-    export RPC_URL=<BASE_SEPOLIA_RPC_URL>
-    export PRIVATE_KEY=<PRIVATE_KEY>
-    source /app/.env.base-sepolia
-    boundless account deposit-stake 10
-    ```
     - Base mainnet
     ```bash
     export RPC_URL=<BASE_MAINNET_RPC_URL>
