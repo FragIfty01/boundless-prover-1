@@ -56,12 +56,9 @@ English | [中文](https://github.com/walirt/boundless-prover/blob/main/README_z
     ```
 
 8. Modify the broker's configuration file, the path is `/app/broker<N>.toml`, `N` is your broker number
-    - Eth Sepolia
-        - /app/broker1.toml 
-    - Base Sepolia
-        - /app/broker2.toml 
+
     - Base mainnet
-        - /app/broker3.toml 
+        - nano /app/broker3.toml 
 
 9. Run the broker
     ```bash
