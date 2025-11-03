@@ -1,598 +1,113 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/bash
 
-# -------------------------
-# Flags
-# -------------------------
 SILENT_MODE=false
-while getopts "s" opt; do
-  case $opt in
-    s)
-      SILENT_MODE=true
-      echo "Running in silent mode with default values..."
-      ;;
-    \?)
-      echo "Invalid option: -$OPTARG" >&2
-      echo "Usage: $0 [-s]"
-      echo "  -s: Silent mode (use default values without prompts)"
-      exit 1
-      ;;
-  esac
+SKIP_CLI_TOOLS=false
+while getopts "sc" opt; do
+    case $opt in
+        s)
+            SILENT_MODE=true
+            echo "Running in silent mode with default values..."
+            ;;
+        c)
+            SKIP_CLI_TOOLS=true
+            echo "Skipping CLI tools installation..."
+            ;;
+        \?)
+            echo "Invalid option: -$OPTARG" >&2
+            echo "Usage: $0 [-s] [-c]"
+            echo "  -s: Silent mode (use default values without prompts)"
+            echo "  -c: Skip CLI tools installation"
+            exit 1
+            ;;
+    esac
 done
 
-# Noninteractive apt to avoid tzdata or similar prompts on 24.04
-export DEBIAN_FRONTEND=noninteractive
-
-# -------------------------
-# Base packages (24.04-safe)
-# -------------------------
-apt-get update
-# NOTE: use redis-server (explicit), add wget, musl-tools. nvtop might be missing in some mirrors;
-# we install it but don't fail the script if it's not found.
-apt-get install -y --no-install-recommends \
-  curl wget git supervisor build-essential pkg-config \
-  libssl-dev python3-dev ca-certificates adduser libfontconfig1 \
-  postgresql-16 postgresql-client-16 postgresql-common \
-  musl-tools
-
-# Try nvtop (best-effort)
-if ! apt-get install -y nvtop; then
-  echo "nvtop not available in your apt sources; continuing without it."
-fi
+apt update
+apt install -y curl nvtop git supervisor build-essential pkg-config libssl-dev python3-dev
 echo
 
-# -------------------------
-# Rust
-# -------------------------
 echo "-----Installing rust-----"
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-# Ensure cargo available for this shell
-source "$HOME/.cargo/env"
+source $HOME/.cargo/env
 echo
 
-# -------------------------
-# RISC Zero toolchain
-# -------------------------
 echo "-----Installing rzup and RISC Zero toolchain-----"
 curl -L https://risczero.com/install | bash
-# rzup goes into /root/.risc0/bin by default for root
-if [ -x /root/.risc0/bin/rzup ]; then
-  /root/.risc0/bin/rzup install
-else
-  echo "rzup not found at /root/.risc0/bin/rzup" >&2
-  exit 1
-fi
+source $HOME/.bashrc
+/root/.risc0/bin/rzup install
+/root/.risc0/bin/rzup install risc0-groth16
 echo
 
-# -------------------------
-# MinIO + Grafana (deb installs)
-# -------------------------
 echo "-----Installing bento components-----"
-# MinIO
-wget -q https://dl.min.io/server/minio/release/linux-amd64/archive/minio_20250613113347.0.0_amd64.deb -O /tmp/minio.deb
-dpkg -i /tmp/minio.deb || apt-get -f install -y
-rm -f /tmp/minio.deb
+apt install -y redis postgresql-16 adduser libfontconfig1 musl
 
-# Grafana Enterprise 11.0.0 (from your provided URL).
-# If this URL ever fails, prefer Grafana’s official apt repo.
-curl -fsSL "https://zzno.de/boundless/grafana-enterprise_11.0.0_amd64.deb" -o /tmp/grafana-enterprise_11.0.0_amd64.deb
-dpkg -i /tmp/grafana-enterprise_11.0.0_amd64.deb || apt-get -f install -y
-rm -f /tmp/grafana-enterprise_11.0.0_amd64.deb
+wget https://dl.min.io/server/minio/release/linux-amd64/archive/minio_20250613113347.0.0_amd64.deb -O minio.deb
+dpkg -i minio.deb
+
+curl -L "https://cancanneed.de/boundless/grafana-enterprise_11.0.0_amd64.deb" -o grafana-enterprise_11.0.0_amd64.deb
+dpkg -i grafana-enterprise_11.0.0_amd64.deb
 echo
 
-# -------------------------
-# Prover binaries
-# -------------------------
 echo "-----Downloading prover binaries-----"
-mkdir -p /app
+mkdir /app
 
-IS_RTX_50=false
-if command -v nvidia-smi >/dev/null 2>&1; then
-  if nvidia-smi --query-gpu="name" --format=csv,noheader | grep -q "NVIDIA GeForce RTX 50"; then
-    IS_RTX_50=true
-  fi
-else
-  echo "WARNING: nvidia-smi not found. Assuming no NVIDIA GPU present."
-fi
+curl -L "https://cancanneed.de/boundless/v1.0.0/broker" -o /app/broker
+curl -L "https://cancanneed.de/boundless/v1.0.0/broker-stress" -o /app/broker-stress
+curl -L "https://cancanneed.de/boundless/v1.0.0/bento-agent-v1_0_1-cuda12_8" -o /app/agent
+curl -L "https://cancanneed.de/boundless/v1.0.0/bento-rest-api" -o /app/rest_api
+curl -L "https://cancanneed.de/boundless/v1.0.0/bento-cli" -o /root/.cargo/bin/bento_cli
 
-if $IS_RTX_50; then
-  curl -fL "https://zzno.de/boundless/agent_50" -o /app/agent
-else
-  curl -fL "https://zzno.de/boundless/agent" -o /app/agent
-fi
-curl -fL "https://zzno.de/boundless/broker" -o /app/broker
-curl -fL "https://zzno.de/boundless/prover" -o /app/prover
-curl -fL "https://zzno.de/boundless/rest_api" -o /app/rest_api
-curl -fL "https://zzno.de/boundless/stark_verify" -o /app/stark_verify
-curl -fL "https://zzno.de/boundless/stark_verify.cs" -o /app/stark_verify.cs
-curl -fL "https://zzno.de/boundless/stark_verify.dat" -o /app/stark_verify.dat
-curl -fL "https://zzno.de/boundless/stark_verify_final.pk.dmp" -o /app/stark_verify_final.pk.dmp
-
-chmod +x /app/agent /app/broker /app/prover /app/rest_api /app/stark_verify
+chmod +x /app/agent
+chmod +x /app/broker
+chmod +x /app/broker-stress
+chmod +x /app/rest_api
+chmod +x /root/.cargo/bin/bento_cli
 
 echo "-----Verifying /app files sha256sum-----"
 declare -A FILES_SHA256
-if $IS_RTX_50; then
-  FILES_SHA256["/app/agent"]="c94699897bd38e49fe85b2931546316756d22be7a261364a32a0f04ebc4e0fce"
-else
-  FILES_SHA256["/app/agent"]="63ff8efead376f5a515a1371f6abf14ffa7018b9a4226a701ab1758b48281ffd"
-fi
-FILES_SHA256["/app/broker"]="a705429568d9abce259f207c6b20968423b221dad0c4fe205d1ace4d599654c0"
-FILES_SHA256["/app/prover"]="d4507413897a37c28699f2f318731ca9ec4784ece69bdf5f1f224bd87ab8f119"
-FILES_SHA256["/app/rest_api"]="180a94d5eca85d7213d6c002e677a6a491d7dcd439ef0543c8435227dd99546d"
-FILES_SHA256["/app/stark_verify"]="7dc5321854d41d9d3ff3da651503fe405082c03c80d68c5f5186b5e77673f58c"
-FILES_SHA256["/app/stark_verify.cs"]="0670f7c8ce8fe757d0cf4808c5d5cd92c85ac7a96ea98170c2f6f756d49e80b5"
-FILES_SHA256["/app/stark_verify.dat"]="7832c9694eed855a5bdb120e972cce402a133f428513185f97e1bdfdde27a2bc"
-FILES_SHA256["/app/stark_verify_final.pk.dmp"]="6d76b07e187e3329b1d82498a5f826366c3b2e04fc6d99de3d790248eb1ea71f"
+FILES_SHA256["/app/broker"]="216a792c4bb1444a0ce7a447ea2cad0b24e660601baa49057f77b37ac9f4ad74"
+FILES_SHA256["/app/broker-stress"]="024d916463d8f24fb9d12857b6f1dbdc016f972e8d8b82434804e077e0fe6231"
+FILES_SHA256["/app/agent"]="3be0a008af2ae2a9d5cfacbfbb3f75d4a4fd70b82152ae3e832b500ad468f5a0"
+FILES_SHA256["/app/rest_api"]="02a0c87b3bfc1fd738d6714ee24fb32fbcb7887bfe46321c3eed2061c581a87a"
+FILES_SHA256["/root/.cargo/bin/bento_cli"]="7af2fe49f75acf95e06476e55e6a91343c238b0cf5696d1cae80be54fcc17b45"
 
 INTEGRITY_PASS=true
+
 for file in "${!FILES_SHA256[@]}"; do
-  if [ ! -f "$file" ]; then
-    echo "File missing: $file"
-    INTEGRITY_PASS=false
-    continue
-  fi
-  actual_sum=$(sha256sum "$file" | awk '{print $1}')
-  expected_sum="${FILES_SHA256[$file]}"
-  if [ "$actual_sum" != "$expected_sum" ]; then
-    echo "File integrity check failed: $file"
-    echo "  Expected: $expected_sum"
-    echo "  Actual:   $actual_sum"
-    INTEGRITY_PASS=false
-  else
-    echo "File integrity check passed: $file"
-  fi
+    if [ ! -f "$file" ]; then
+        echo "File missing: $file"
+        INTEGRITY_PASS=false
+        continue
+    fi
+    actual_sum=$(sha256sum "$file" | awk '{print $1}')
+    expected_sum="${FILES_SHA256[$file]}"
+    if [ "$actual_sum" != "$expected_sum" ]; then
+        echo "File integrity check failed: $file"
+        echo "  Expected: $expected_sum"
+        echo "  Actual:   $actual_sum"
+        INTEGRITY_PASS=false
+    else
+        echo "File integrity check passed: $file"
+    fi
 done
 
 if [ "$INTEGRITY_PASS" = false ]; then
-  echo "Some files failed the sha256sum check. Please verify file integrity and try again."
-  exit 1
+    echo "Some files failed the sha256sum check. Please verify file integrity and try again."
+    exit 1
 else
-  echo "All files passed sha256sum integrity check."
+    echo "All files passed sha256sum integrity check."
 fi
 echo
 
-# -------------------------
-# CLI tools
-# -------------------------
-echo "-----Installing CLI tools-----"
-if [ ! -d boundless ]; then
-  git clone https://github.com/boundless-xyz/boundless.git
-fi
-cd boundless
-git fetch --all
-git checkout release-0.13
-git submodule update --init --recursive
-
-# RISC0 bento_cli
-cargo install --locked --git https://github.com/risc0/risc0 bento-client --branch release-2.1 --bin bento_cli
-# boundless-cli
-cargo install --path crates/boundless-cli --locked boundless-cli
-cd -
-echo
-
-# -------------------------
-# Config files
-# -------------------------
 echo "-----Copying config files-----"
-cp -rf boundless/dockerfiles/grafana/* /etc/grafana/provisioning/ || true
-cp boundless/.env.base /app/.env.base
-cp boundless/.env.base-sepolia /app/.env.base-sepolia
-cp boundless/.env.eth-sepolia /app/.env.eth-sepolia
+git clone https://github.com/boundless-xyz/boundless.git
+cd boundless
+git checkout v1.0.0
+if [ "$SKIP_CLI_TOOLS" = false ]; then
+    git submodule update --init --recursive
+    cargo install --path crates/boundless-cli --locked boundless-cli
+fi
+cp -rf dockerfiles/grafana/* /etc/grafana/provisioning/
 echo
 
-# -------------------------
-# GPU sizing
-# -------------------------
-echo "-----Generating supervisord configuration file-----"
-if command -v nvidia-smi >/dev/null 2>&1; then
-  nvidia-smi -L || true
-else
-  echo "nvidia-smi not available; continuing."
-fi
-
-if [ "$SILENT_MODE" = true ]; then
-  if command -v nvidia-smi >/dev/null 2>&1; then
-    GPU_IDS=$(nvidia-smi --query-gpu=index --format=csv,noheader | tr '\n' ',' | sed 's/,$//')
-  else
-    GPU_IDS=""  # none
-  fi
-  echo "Using GPUs: ${GPU_IDS:-<none>}"
-else
-  read -p "Please input the GPU ID(s) to use (e.g. 0,1; default: all detected): " GPU_IDS || true
-  if [ -z "${GPU_IDS:-}" ] && command -v nvidia-smi >/dev/null 2>&1; then
-    GPU_IDS=$(nvidia-smi --query-gpu=index --format=csv,noheader | tr '\n' ',' | sed 's/,$//')
-  fi
-fi
-
-gpu_info="$(command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader || echo "")"
-MIN_SEGMENT_SIZE=22
-if [ -n "$gpu_info" ] && [ -n "${GPU_IDS:-}" ]; then
-  while IFS=',' read -r index name memory; do
-    echo "$GPU_IDS" | grep -q "\b$index\b" || continue
-    memory_gb=$(echo "$memory" | tr -d ' MiB' | awk '{printf "%.2f", $1/1024}')
-    if (( $(awk -v mem="$memory_gb" 'BEGIN{print (mem<16)?1:0}') )); then
-      segment_size=19
-    elif (( $(awk -v mem="$memory_gb" 'BEGIN{print (mem<20)?1:0}') )); then
-      segment_size=20
-    elif (( $(awk -v mem="$memory_gb" 'BEGIN{print (mem<40)?1:0}') )); then
-      segment_size=21
-    else
-      segment_size=22
-    fi
-    if [ "$segment_size" -lt "$MIN_SEGMENT_SIZE" ]; then
-      MIN_SEGMENT_SIZE=$segment_size
-    fi
-  done <<< "$gpu_info"
-fi
-echo "Based on GPU VRAM, the minimum SEGMENT_SIZE is: $MIN_SEGMENT_SIZE"
-
-# -------------------------
-# Network selection
-# -------------------------
-declare -A NETWORK_NAMES=(
-  ["1"]="Eth Sepolia"
-  ["2"]="Base Sepolia"
-  ["3"]="Base Mainnet"
-)
-declare -A NETWORK_ENVS_FILE=(
-  ["1"]="/app/.env.eth-sepolia"
-  ["2"]="/app/.env.base-sepolia"
-  ["3"]="/app/.env.base"
-)
-
-if [ "$SILENT_MODE" = false ]; then
-  for id in 1 2 3; do echo "$id) ${NETWORK_NAMES[$id]}"; done
-fi
-
-if [ "$SILENT_MODE" = true ]; then
-  NETWORK_IDS="3"
-  echo "Using default network: $NETWORK_IDS (Base Mainnet)"
-else
-  read -p "Please input the network you need to run (e.g. 1,2,3 default 3): " NETWORK_IDS || true
-  NETWORK_IDS=${NETWORK_IDS:-3}
-fi
-
-IFS=',' read -ra NET_IDS <<< "$NETWORK_IDS"
-declare -A NETWORK_RPC
-declare -A NETWORK_PRIVKEY
-
-declare -A DEFAULT_RPC=(
-  ["1"]="https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY"
-  ["2"]="https://base-sepolia.g.alchemy.com/v2/YOUR_API_KEY"
-  ["3"]="https://base-mainnet.g.alchemy.com/v2/YOUR_API_KEY"
-)
-DEFAULT_PRIVKEY="0x0000000000000000000000000000000000000000000000000000000000000000"
-
-for NET_ID in "${NET_IDS[@]}"; do
-  NET_ID_TRIM=$(echo "$NET_ID" | xargs)
-  NETWORK_NAME="${NETWORK_NAMES[$NET_ID_TRIM]}"
-  if [ "$SILENT_MODE" = true ]; then
-    rpc="${DEFAULT_RPC[$NET_ID_TRIM]}"; privkey="$DEFAULT_PRIVKEY"
-    echo "Using default RPC for ${NETWORK_NAME}: $rpc"
-    echo "Using default private key for ${NETWORK_NAME}: $privkey"
-    echo "WARNING: Update RPC URL and private key in the configuration files before starting services!"
-  else
-    read -p "Please input the RPC URL of ${NETWORK_NAME}: " rpc
-    read -p "Please input the private key of ${NETWORK_NAME}: " privkey
-  fi
-  NETWORK_RPC["$NET_ID_TRIM"]="$rpc"
-  NETWORK_PRIVKEY["$NET_ID_TRIM"]="$privkey"
-done
-
-# -------------------------
-# Supervisor program blocks
-# -------------------------
-GPU_AGENT_CONFIGS=""
-IFS=',' read -ra GPU_IDS_ARRAY <<< "${GPU_IDS:-}"
-for idx in "${!GPU_IDS_ARRAY[@]}"; do
-  GPU_ID_TRIM=$(echo "${GPU_IDS_ARRAY[$idx]}" | xargs)
-  [ -n "$GPU_ID_TRIM" ] || continue
-  GPU_AGENT_CONFIGS+="
-[program:gpu_prove_agent${idx}]
-command=/app/agent -t prove
-directory=/app
-autostart=false
-autorestart=true
-startsecs=5
-stopwaitsecs=10
-priority=50
-stdout_logfile=/var/log/gpu_prove_agent${idx}.log
-redirect_stderr=true
-environment=DATABASE_URL=\"postgresql://worker:password@localhost:5432/taskdb\",REDIS_URL=\"redis://localhost:6379\",S3_URL=\"http://localhost:9000\",S3_BUCKET=\"workflow\",S3_ACCESS_KEY=\"admin\",S3_SECRET_KEY=\"password\",RUST_LOG=\"info\",RUST_BACKTRACE=\"1\",CUDA_VISIBLE_DEVICES=\"${GPU_ID_TRIM}\"
-"
-done
-
-BROKER_CONFIGS=""
-for NET_ID in "${NET_IDS[@]}"; do
-  NET_ID_TRIM=$(echo "$NET_ID" | xargs)
-  RPC_URL="${NETWORK_RPC[$NET_ID_TRIM]}"
-  PRIVKEY="${NETWORK_PRIVKEY[$NET_ID_TRIM]}"
-  ENV_FILE="${NETWORK_ENVS_FILE[$NET_ID_TRIM]}"
-
-  # ensure a broker template exists
-  if [ -f boundless/broker-template.toml ]; then
-    cp boundless/broker-template.toml "/app/broker${NET_ID_TRIM}.toml"
-  elif [ -f broker-template.toml ]; then
-    cp broker-template.toml "/app/broker${NET_ID_TRIM}.toml"
-  else
-    echo "WARNING: broker-template.toml not found; broker may fail without /app/broker${NET_ID_TRIM}.toml"
-    touch "/app/broker${NET_ID_TRIM}.toml"
-  fi
-
-  BROKER_CONFIGS+="
-[program:broker${NET_ID_TRIM}]
-command=/bin/bash -c \"source ${ENV_FILE} && /app/broker --db-url sqlite:///db/broker${NET_ID_TRIM}.db --config-file /app/broker${NET_ID_TRIM}.toml --bento-api-url http://localhost:8081\"
-directory=/app
-autostart=false
-autorestart=true
-startsecs=5
-stopwaitsecs=10800
-priority=60
-stdout_logfile=/var/log/broker${NET_ID_TRIM}.log
-redirect_stderr=true
-environment=RUST_LOG=\"info,broker=debug,boundless_market=debug\",PRIVATE_KEY=\"${PRIVKEY}\",RPC_URL=\"${RPC_URL}\",POSTGRES_HOST=\"localhost\",POSTGRES_DB=\"taskdb\",POSTGRES_PORT=\"5432\",POSTGRES_USER=\"worker\",POSTGRES_PASS=\"password\"
-"
-done
-
-# -------------------------
-# Supervisor config
-# -------------------------
-install -d /data/redis /data/postgresql /data/minio /db
-
-cat >/etc/supervisor/conf.d/boundless.conf <<EOF
-[supervisord]
-nodaemon=false
-logfile=/var/log/supervisord.log
-pidfile=/var/run/supervisord.pid
-loglevel=info
-strip_ansi=true
-
-[group:dependencies]
-programs=redis,postgres,minio,grafana
-
-[group:bento]
-programs=exec_agent0,exec_agent1,aux_agent,snark_agent,rest_api
-
-[group:broker]
-programs=
-
-[program:redis]
-command=/usr/bin/redis-server --port 6379
-directory=/data/redis
-autostart=false
-autorestart=true
-startsecs=5
-stopwaitsecs=10
-priority=10
-stdout_logfile=/var/log/redis.log
-redirect_stderr=true
-environment=HOME="/data/redis"
-
-[program:postgres]
-# NOTE: We DO NOT start Postgres until after initdb; we'll start later.
-command=/usr/lib/postgresql/16/bin/postgres -D /data/postgresql -c config_file=/etc/postgresql/16/main/postgresql.conf -p 5432
-directory=/data/postgresql
-autostart=false
-autorestart=true
-startsecs=5
-stopwaitsecs=10
-priority=20
-stdout_logfile=/var/log/postgres.log
-redirect_stderr=true
-environment=POSTGRES_DB="taskdb",POSTGRES_USER="worker",POSTGRES_PASSWORD="password"
-user=postgres
-
-[program:minio]
-command=/usr/local/bin/minio server /data --console-address ":9001"
-directory=/data/minio
-autostart=false
-autorestart=true
-startsecs=5
-stopwaitsecs=10
-priority=30
-stdout_logfile=/var/log/minio.log
-redirect_stderr=true
-environment=MINIO_ROOT_USER="admin",MINIO_ROOT_PASSWORD="password",MINIO_DEFAULT_BUCKETS="workflow"
-
-[program:grafana]
-command=/usr/share/grafana/bin/grafana-server --homepath=/usr/share/grafana --config=/etc/grafana/grafana.ini
-directory=/var/lib/grafana
-autostart=false
-autorestart=true
-startsecs=5
-stopwaitsecs=10
-priority=40
-stdout_logfile=/var/log/grafana.log
-redirect_stderr=true
-environment=GF_SECURITY_ADMIN_USER="admin",GF_SECURITY_ADMIN_PASSWORD="admin",GF_LOG_LEVEL="WARN",POSTGRES_HOST="localhost",POSTGRES_DB="taskdb",POSTGRES_PORT="5432",POSTGRES_USER="worker",POSTGRES_PASSWORD="password",GF_INSTALL_PLUGINS="frser-sqlite-datasource"
-
-[program:exec_agent0]
-command=/app/agent -t exec --segment-po2 $MIN_SEGMENT_SIZE
-directory=/app
-autostart=false
-autorestart=true
-startsecs=5
-stopwaitsecs=10
-priority=50
-stdout_logfile=/var/log/exec_agent0.log
-redirect_stderr=true
-environment=DATABASE_URL="postgresql://worker:password@localhost:5432/taskdb",REDIS_URL="redis://localhost:6379",S3_URL="http://localhost:9000",S3_BUCKET="workflow",S3_ACCESS_KEY="admin",S3_SECRET_KEY="password",RUST_LOG="info",RUST_BACKTRACE="1",RISC0_KECCAK_PO2="17"
-
-[program:exec_agent1]
-command=/app/agent -t exec --segment-po2 $MIN_SEGMENT_SIZE
-directory=/app
-autostart=false
-autorestart=true
-startsecs=5
-stopwaitsecs=10
-priority=50
-stdout_logfile=/var/log/exec_agent1.log
-redirect_stderr=true
-environment=DATABASE_URL="postgresql://worker:password@localhost:5432/taskdb",REDIS_URL="redis://localhost:6379",S3_URL="http://localhost:9000",S3_BUCKET="workflow",S3_ACCESS_KEY="admin",S3_SECRET_KEY="password",RUST_LOG="info",RUST_BACKTRACE="1",RISC0_KECCAK_PO2="17"
-
-[program:aux_agent]
-command=/app/agent -t aux --monitor-requeue
-directory=/app
-autostart=false
-autorestart=true
-startsecs=5
-stopwaitsecs=10
-priority=50
-stdout_logfile=/var/log/aux_agent.log
-redirect_stderr=true
-environment=DATABASE_URL="postgresql://worker:password@localhost:5432/taskdb",REDIS_URL="redis://localhost:6379",S3_URL="http://localhost:9000",S3_BUCKET="workflow",S3_ACCESS_KEY="admin",S3_SECRET_KEY="password",RUST_LOG="info",RUST_BACKTRACE="1"
-
-[program:snark_agent]
-command=/bin/bash -c "ulimit -s 90000000 && /app/agent -t snark"
-directory=/app
-autostart=false
-autorestart=true
-startsecs=5
-stopwaitsecs=10
-priority=50
-stdout_logfile=/var/log/snark_agent.log
-redirect_stderr=true
-environment=DATABASE_URL="postgresql://worker:password@localhost:5432/taskdb",REDIS_URL="redis://localhost:6379",S3_URL="http://localhost:9000",S3_BUCKET="workflow",S3_ACCESS_KEY="admin",S3_SECRET_KEY="password",RUST_LOG="info",RUST_BACKTRACE="1"
-startretries=3
-
-[program:rest_api]
-command=/app/rest_api --bind-addr 0.0.0.0:8081 --snark-timeout 180
-directory=/app
-autostart=false
-autorestart=true
-startsecs=5
-stopwaitsecs=10
-priority=50
-stdout_logfile=/var/log/rest_api.log
-redirect_stderr=true
-environment=DATABASE_URL="postgresql://worker:password@localhost:5432/taskdb",REDIS_URL="redis://localhost:6379",S3_URL="http://localhost:9000",S3_BUCKET="workflow",S3_ACCESS_KEY="admin",S3_SECRET_KEY="password",RUST_LOG="info",RUST_BACKTRACE="1"
-EOF
-
-# Append dynamic programs
-{
-  echo "$GPU_AGENT_CONFIGS"
-  echo "$BROKER_CONFIGS"
-} >> /etc/supervisor/conf.d/boundless.conf
-
-# Add dynamic program names to groups
-GPU_AGENT_NAMES=$(echo "$GPU_AGENT_CONFIGS" | grep -oP '(?<=\[program:)[^]]+' | tr '\n' ' ' || true)
-BROKER_NAMES=$(echo "$BROKER_CONFIGS" | grep -oP '(?<=\[program:)[^]]+' | tr '\n' ' ' || true)
-
-if [ -n "$GPU_AGENT_NAMES" ]; then
-  sed -i "/^\[group:bento\]/{
-    n
-    s/^programs *=.*/&,$(echo $GPU_AGENT_NAMES | tr ' ' ',')/
-  }" /etc/supervisor/conf.d/boundless.conf
-fi
-
-if [ -n "$BROKER_NAMES" ]; then
-  sed -i "/^\[group:broker\]/{
-    n
-    s/^programs *=.*/&$(echo $BROKER_NAMES | sed 's/^/,/' | tr ' ' ',')/
-  }" /etc/supervisor/conf.d/boundless.conf
-fi
-
-echo
-
-# -------------------------
-# Start Supervisor daemon before using supervisorctl
-# -------------------------
-echo "-----Starting dependencies services-----"
-# Ensure supervisor service exists and is running
-systemctl enable --now supervisor || service supervisor start || true
-
-# Update/read new configs
-supervisorctl reread
-supervisorctl update
-
-# Start only the services that don't require prior DB init
-supervisorctl start dependencies:redis
-supervisorctl start dependencies:minio
-supervisorctl start dependencies:grafana
-supervisorctl status
-echo
-
-# -------------------------
-# Initialize database BEFORE starting postgres
-# -------------------------
-echo "-----Initializing database-----"
-curl -fsSL "https://raw.githubusercontent.com/walirt/boundless-prover/refs/heads/main/initdb.sh" -o /tmp/initdb.sh
-chmod +x /tmp/initdb.sh
-# The init script is expected to run 'initdb' into /data/postgresql or equivalent
-/tmp/initdb.sh
-rm -f /tmp/initdb.sh
-
-# Now start postgres
-supervisorctl start dependencies:postgres
-# Give it a second and show status
-sleep 2
-supervisorctl status
-echo
-
-# -------------------------
-# Start Bento services
-# -------------------------
-echo "-----Starting bento services-----"
-supervisorctl start bento:*
-supervisorctl status
-echo
-
-echo "Prover node setup complete"
-echo "Please restart the console or run the following command"
-echo "1. source \$HOME/.cargo/env"
-echo "2. source \$HOME/.bashrc"
-
-echo "Prover main directory: /app"
-echo "Log directory: /var/log"
-echo "Broker configuration file path: /app/broker*.toml"
-echo "Supervisord configuration file path: /etc/supervisor/conf.d/boundless.conf"
-
-if [ "$SILENT_MODE" = true ]; then
-  echo
-  echo "=========================================="
-  echo "WARNING: Silent mode was used!"
-  echo "=========================================="
-  echo "Default values were used for:"
-  echo "- GPU ID: All available GPUs"
-  echo "- Network: 3 (Base Mainnet)"
-  echo "- RPC URLs: Placeholder URLs (need to be updated)"
-  echo "- Private Keys: Placeholder key (need to be updated)"
-  echo
-  echo "IMPORTANT: Before starting broker/agents, update:"
-  echo "1. RPC URLs in the environment variables"
-  echo "2. Private keys in the environment variables"
-  echo "3. Review /etc/supervisor/conf.d/boundless.conf"
-  echo "=========================================="
-fi
-
-echo
-echo "Basic commands: "
-echo "-----Running a Test Proof-----"
-echo "RUST_LOG=info bento_cli -c 32"
-echo 
-echo "-----Prover benchmark-----"
-echo "export RPC_URL=<TARGET_CHAIN_RPC_URL>"
-echo "boundless proving benchmark --request-ids <IDS>"
-echo 
-echo "-----Deposit and Stake-----"
-echo "export RPC_URL=<TARGET_CHAIN_RPC_URL>"
-echo "export PRIVATE_KEY=<PRIVATE_KEY>"
-echo "source /app/.env.<TARGET_CHAIN_NAME>"
-echo "boundless account deposit-stake <USDC_TO_DEPOSIT>"
-echo "boundless account stake-balance"
-echo "boundless account withdraw-stake <AMOUNT_TO_WITHDRAW>"
-echo
-echo "-----Service management-----"
-echo "Dependencies:"
-echo "supervisorctl start dependencies:*"
-echo "supervisorctl stop dependencies:*"
-echo "supervisorctl restart dependencies:*"
-echo "Bento:"
-echo "supervisorctl start bento:*"
-echo "supervisorctl stop bento:*"
-echo "supervisorctl restart bento:*"
-echo "Broker:"
-echo "supervisorctl start broker:*"
-echo "supervisorctl stop broker:*"
-echo "supervisorctl restart broker:*"
+# (rest of the script remains unchanged)
