@@ -102,7 +102,7 @@ echo
 echo "-----Copying config files-----"
 git clone https://github.com/boundless-xyz/boundless.git
 cd boundless
-git checkout v1.1.1
+git checkout release-1.1
 if [ "$SKIP_CLI_TOOLS" = false ]; then
     git submodule update --init --recursive
     cargo install --path crates/boundless-cli --locked boundless-cli
