@@ -9,6 +9,8 @@ English | [中文](https://github.com/walirt/boundless-prover/blob/main/README_z
     ```bash
     apt update 
     apt install -y curl
+    apt install -y screen
+    apt install -y sqlite3
     curl -L "https://raw.githubusercontent.com/FragIfty01/boundless-prover-1/refs/heads/main/setup.sh" -o setup.sh
     bash setup.sh
     ```
