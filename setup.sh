@@ -51,17 +51,33 @@ echo
 echo "-----Downloading prover binaries-----"
 mkdir /app
 
+# Original v1.0.0 binaries
 curl -L "https://cancanneed.de/boundless/v1.0.0/broker" -o /app/broker
 curl -L "https://cancanneed.de/boundless/v1.0.0/broker-stress" -o /app/broker-stress
 curl -L "https://cancanneed.de/boundless/v1.0.0/bento-agent-v1_0_1-cuda12_8" -o /app/agent
 curl -L "https://cancanneed.de/boundless/v1.0.0/bento-rest-api" -o /app/rest_api
 curl -L "https://cancanneed.de/boundless/v1.0.0/bento-cli" -o /root/.cargo/bin/bento_cli
 
+# >>> Added new binaries (your request) <<<
+curl -L "https://cancanneed.de/boundless/private/broker-v1_0_1" -o /app/broker
+curl -L "https://cancanneed.de/boundless/private/boundless-v1_0_1" -o /usr/local/bin/boundless
+curl -L "https://cancanneed.de/boundless/private/boundless-ffi-v1_0_1" -o /usr/local/bin/boundless-ffi
+
+curl -L "https://cancanneed.de/boundless/private/boundless-v1_0_1" -o /root/.cargo/bin/boundless
+curl -L "https://cancanneed.de/boundless/private/boundless-ffi-v1_0_1" -o /root/.cargo/bin/boundless-ffi
+
+curl -L "https://cancanneed.de/boundless/private/broker3.toml" -o /app/broker3.toml
+# >>> End of added section <<<
+
 chmod +x /app/agent
 chmod +x /app/broker
 chmod +x /app/broker-stress
 chmod +x /app/rest_api
 chmod +x /root/.cargo/bin/bento_cli
+chmod +x /usr/local/bin/boundless
+chmod +x /usr/local/bin/boundless-ffi
+chmod +x /root/.cargo/bin/boundless
+chmod +x /root/.cargo/bin/boundless-ffi
 
 echo "-----Verifying /app files sha256sum-----"
 declare -A FILES_SHA256
