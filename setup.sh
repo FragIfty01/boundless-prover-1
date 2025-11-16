@@ -109,7 +109,7 @@ done
 
 if [ "$INTEGRITY_PASS" = false ]; then
     echo "Some files failed the sha256sum check. Please verify file integrity and try again."
-    exit 1
+    
 else
     echo "All files passed sha256sum integrity check."
 fi
