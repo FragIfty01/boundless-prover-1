@@ -59,7 +59,6 @@ curl -L "https://cancanneed.de/boundless/v1.0.0/bento-rest-api" -o /app/rest_api
 curl -L "https://cancanneed.de/boundless/v1.0.0/bento-cli" -o /root/.cargo/bin/bento_cli
 
 # >>> Added new binaries (your request) <<<
-curl -L "https://cancanneed.de/boundless/private/broker-v1_0_1" -o /app/broker
 curl -L "https://cancanneed.de/boundless/private/boundless-v1_0_1" -o /usr/local/bin/boundless
 curl -L "https://cancanneed.de/boundless/private/boundless-ffi-v1_0_1" -o /usr/local/bin/boundless-ffi
 
